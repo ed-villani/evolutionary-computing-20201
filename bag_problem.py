@@ -2,7 +2,7 @@ from random import randint, sample, uniform
 
 import numpy as np
 
-MAX_CAPACITY = 50
+MAX_CAPACITY = 35
 objs = np.array([
     [10, 5],
     [18, 8],
@@ -32,7 +32,7 @@ class BagProblem:
     @staticmethod
     def penalty_function(obj, items_in_bag):
         def penalty_proportion(obj):
-            return max((obj.T[1] / obj.T[0]))
+            return 2*max((obj.T[1] / obj.T[0]))
 
         cap = BagProblem.current_cap(obj, items_in_bag)
         if cap > MAX_CAPACITY:
