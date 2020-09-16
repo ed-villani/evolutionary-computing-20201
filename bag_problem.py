@@ -1,8 +1,8 @@
-from random import randint, random, sample, uniform
+from random import randint, sample, uniform
 
 import numpy as np
 
-MAX_CAPACITY = 35
+MAX_CAPACITY = 50
 objs = np.array([
     [10, 5],
     [18, 8],
@@ -11,7 +11,8 @@ objs = np.array([
     [13, 9],
     [11, 5],
     [8, 4],
-    [6, 3]]
+    [6, 3]
+]
 )
 
 
@@ -31,7 +32,7 @@ class BagProblem:
     @staticmethod
     def penalty_function(obj, items_in_bag):
         def penalty_proportion(obj):
-            return (obj.T[1] / obj.T[0])[np.argmax(obj.T[1] / obj.T[0])]
+            return max((obj.T[1] / obj.T[0]))
 
         cap = BagProblem.current_cap(obj, items_in_bag)
         if cap > MAX_CAPACITY:
@@ -41,7 +42,8 @@ class BagProblem:
 
     @staticmethod
     def fitness_function(obj, items_in_bag):
-        return BagProblem.value_in_bag(obj, items_in_bag) - BagProblem.penalty_function(obj, items_in_bag)
+        fit = BagProblem.value_in_bag(obj, items_in_bag) - BagProblem.penalty_function(obj, items_in_bag)
+        return fit if fit > 0 else 0
 
     @staticmethod
     def cross(population):
@@ -54,49 +56,105 @@ class BagProblem:
         return np.array(pais_cross)
 
     @staticmethod
-    def sort_population_by_fit(population, fitenss_per_been):
-        k = np.vstack((population.T, fitenss_per_been)).T
+    def sort_population_by_fit(population, fitness_per_being):
+        k = np.vstack((population.T, fitness_per_being)).T
         k = k[np.argsort(-k[:, -1])]
 
-        fitenss_per_been = k[:, -1]
+        fitness_per_being = k[:, -1]
         population = k[:, :-1]
-        return fitenss_per_been, population
+        return fitness_per_being, population
+
+    @staticmethod
+    def sort_population_by_capacity(population, fitness_per_being):
+        k = np.vstack((population.T, fitness_per_being, BagProblem.current_cap(objs, population))).T
+        k = k[np.argsort(k[:, -1])]
+        fitness_per_being = k[:, -2]
+        population = k[:, :-2]
+        return fitness_per_being, population
+
+    @staticmethod
+    def fitness_roulette_selector(n_been, population, fitness_per_being):
+        def roulette_selector_per_been(population, fitness_per_being):
+            total_fitness = sum(fitness_per_being)
+            proportion_fit = fitness_per_being / total_fitness
+            picker = uniform(0, 1)
+            current = 0
+            for been, fit in zip(population, proportion_fit):
+                current += fit
+                if current > picker:
+                    return been
+
+        selected_parents = np.array(
+            [roulette_selector_per_been(population, fitness_per_being) for _ in range(int(n_been))])
+        return np.array_split(np.array(selected_parents), len(selected_parents) / 2)
+
+    @staticmethod
+    def crossover(parents):
+        def action(parent_1, parent_2):
+            prob_crossover = uniform(0, 1)
+            if prob_crossover > 0.6:
+                return [parent_1, parent_2]
+            cut_point = randint(0, len(parent_1))
+            children_1 = np.concatenate((parent_1[: cut_point], parent_2[cut_point:]))
+            children_2 = np.concatenate((parent_2[: cut_point], parent_1[cut_point:]))
+            return [children_1, children_2]
+
+        return np.array([action(*parent) for parent in parents]).reshape(len(parents) * 2, len(parents[0][0]))
+
+    @staticmethod
+    def bit_flip(childrens):
+        def action(children):
+            for index, bit in enumerate(children):
+                if uniform(0, 1) < 0.02:
+                    if bit == 1:
+                        children[index] = 0
+                    elif bit == 0:
+                        children[index] = 1
+            return children
+
+        return np.array([action(children) for children in childrens])
 
 
 def main():
-    num_population = 6
-    max_iters = len(objs) * num_population
-
+    num_population = 1000
+    max_iters = 10000
     population = np.array([BagProblem.init_items() for _ in range(num_population)])
-    fitenss_per_been = np.array([BagProblem.fitness_function(objs, p) for p in population])
+    max_gen_to_converge = 10
+    last_max_fit = 0
+    hit = 0
 
-    fitenss_per_been, population, = BagProblem.sort_population_by_fit(population, fitenss_per_been)
+    for i in range(max_iters):
+        fitness_per_being = np.array([BagProblem.fitness_function(objs, p) for p in population])
+        index = np.argmax(fitness_per_being)
+        print(f"Generation {i}")
+        print(f"Better Fitness {fitness_per_being[index]}")
+        print(f"Better Being: {population[index]}")
+        print(f"Current Capacity: {BagProblem.current_cap(objs, population[index])}")
+        print(f"Current Value: {BagProblem.value_in_bag(objs, population[index])}\n")
 
+        if hit >= max_gen_to_converge:
+            break
+        if (last_max_fit == fitness_per_being[index] or last_max_fit < fitness_per_being[index]) and BagProblem.current_cap(objs, population[index]) <= MAX_CAPACITY:
+            hit += 1
+            print(f'Hit: {hit}')
+        else:
+            hit = 0
+        last_max_fit = fitness_per_being[index]
+        proportion = 0.1
+        # Drop worst values
+        fitness_per_being, population = BagProblem.sort_population_by_fit(population, fitness_per_being)
+        population = population[:int(len(population) * proportion)]
+        fitness_per_being = fitness_per_being[:int(len(fitness_per_being) * proportion)]
+        # Drops the heavies
+        # fitness_per_being, population = BagProblem.sort_population_by_capacity(population, fitness_per_being)
+        # population = population[:int(len(population) * proportion)]
+        # fitness_per_being = fitness_per_being[:int(len(fitness_per_being) * proportion)]
 
-    total_fitness = sum(fitenss_per_been)
-    proportion_fit = fitenss_per_been / total_fitness
-    print(proportion_fit)
-    current_member = 0
-    selected = []
-    while current_member < 2:
-        random_number = uniform(0, 1)
-        current_min = 0
-        for i in range(len(proportion_fit)):
-            if False:
-                current_max = 1
-            else:
-                current_max = proportion_fit[i] + current_min
-            if current_min < random_number < current_max:
-                selected.append(population[i])
-                print(f"Current Member: {current_member}")
-                print(f"Random: {random_number}")
-                print(f"Min: {current_min}")
-                print(f"Max: {current_max}")
-                print(i)
-            current_min = proportion_fit[i]
-        current_member = current_member + 1
-    print(selected)
-    # Add fit info por pop
+        selected_parents = BagProblem.fitness_roulette_selector(num_population, population, fitness_per_being)
+
+        childrens = BagProblem.crossover(selected_parents)
+        childrens = BagProblem.bit_flip(childrens)
+        population = childrens
 
 
 if __name__ == '__main__':
