@@ -1,4 +1,5 @@
 from random import randint, sample, uniform
+import matplotlib.pyplot as plt
 
 import numpy as np
 
@@ -16,9 +17,98 @@ objs = np.array([
 )
 
 
-class BagProblem:
+class KnapsackProblem:
+    def __init__(self, obj, capacity, num_population, max_iters=10000, max_gen_to_converge=10, penalty=1):
+        self.num_population = num_population
+        self.max_iters = max_iters
+        self.max_gen_to_converge = max_gen_to_converge
+        self.obj = obj
+        self.capacity = capacity
+        self.penalty = penalty
+        self._gens = []
+
+    @property
+    def data_per_gen(self):
+        return np.array(self._gens)
+
+    def solve(self, verbose=False, drop_worsts_proportion=0.1):
+        num_population = self.num_population
+        max_iters = self.max_iters
+        population = np.array([KnapsackProblem.init_items(self.obj) for _ in range(num_population)])
+        max_gen_to_converge = self.max_gen_to_converge
+        last_max_fit = 0
+        hit = 0
+
+        for i in range(max_iters):
+            fitness_per_being = np.array(
+                [KnapsackProblem.fitness_function(self.obj, p, self.penalty) for p in population])
+            index = np.argmax(fitness_per_being)
+
+            if verbose:
+                print(f"Generation {i}")
+                print(f"Better Fitness {fitness_per_being[index]}")
+                print(f"Better Being: {population[index]}")
+                print(f"Current Capacity: {KnapsackProblem.current_cap(self.obj, population[index])}")
+                print(f"Current Value: {KnapsackProblem.value_in_bag(self.obj, population[index])}\n")
+
+            if hit >= max_gen_to_converge:
+                break
+            hit = KnapsackProblem.count_hits(fitness_per_being, hit, index, last_max_fit, population, verbose, self.obj)
+            # Save data for analyse
+            self._gens.append([i, max(fitness_per_being), np.mean(fitness_per_being)])
+
+            last_max_fit = fitness_per_being[index]
+
+            fitness_per_being, population = KnapsackProblem.drop_worst_fitness(
+                drop_worsts_proportion,
+                fitness_per_being,
+                population
+            )
+
+            selected_parents = KnapsackProblem.fitness_roulette_selector(num_population, population, fitness_per_being)
+            childrens = KnapsackProblem.gen_children(selected_parents)
+
+            population = childrens
+
     @staticmethod
-    def init_items():
+    def drop_worst_fitness(drop_worsts_proportion, fitness_per_being, population):
+        proportion = drop_worsts_proportion
+        # Drop worst values
+        fitness_per_being, population = KnapsackProblem.sort_population_by_fit(population, fitness_per_being)
+        population = population[:int(len(population) * proportion)]
+        fitness_per_being = fitness_per_being[:int(len(fitness_per_being) * proportion)]
+        return fitness_per_being, population
+
+    @staticmethod
+    def count_hits(fitness_per_being, hit, index, last_max_fit, population, verbose, objs):
+        def compare_fits():
+            def equal_last():
+                return last_max_fit == fitness_per_being[index]
+
+            def bigger_last():
+                return last_max_fit < fitness_per_being[index]
+
+            return equal_last() or bigger_last()
+
+        def valid_capacity():
+            return KnapsackProblem.current_cap(objs, population[index]) <= MAX_CAPACITY
+
+        if compare_fits() and valid_capacity():
+            hit += 1
+            if verbose:
+                print(f'Hit: {hit}')
+        else:
+            hit = 0
+        return hit
+
+    @staticmethod
+    def gen_children(selected_parents):
+        children = KnapsackProblem.crossover(selected_parents)
+        children = KnapsackProblem.bit_flip(children)
+        return children
+
+    @staticmethod
+    def init_items(objs):
         return np.array([randint(0, 1) for _ in objs])
 
     @staticmethod
@@ -30,20 +120,21 @@ class BagProblem:
         return items_in_bag @ obj.T[1]
 
     @staticmethod
-    def penalty_function(obj, items_in_bag):
+    def penalty_function(obj, items_in_bag, penalty=1):
         def penalty_proportion(obj):
-            return 2*max((obj.T[1] / obj.T[0]))
+            return penalty * max((obj.T[1] / obj.T[0]))
 
-        cap = BagProblem.current_cap(obj, items_in_bag)
+        cap = KnapsackProblem.current_cap(obj, items_in_bag)
         if cap > MAX_CAPACITY:
             return penalty_proportion(obj) * (cap - MAX_CAPACITY)
         else:
             return 0
 
     @staticmethod
-    def fitness_function(obj, items_in_bag):
-        fit = BagProblem.value_in_bag(obj, items_in_bag) - BagProblem.penalty_function(obj, items_in_bag)
-        return fit if fit > 0 else 0
+    def fitness_function(obj, items_in_bag, penalty=1):
+        fit = KnapsackProblem.value_in_bag(obj, items_in_bag) - KnapsackProblem.penalty_function(obj, items_in_bag,
+                                                                                                 penalty)
+        return fit
 
     @staticmethod
     def cross(population):
@@ -66,7 +157,7 @@ class BagProblem:
 
     @staticmethod
     def sort_population_by_capacity(population, fitness_per_being):
-        k = np.vstack((population.T, fitness_per_being, BagProblem.current_cap(objs, population))).T
+        k = np.vstack((population.T, fitness_per_being, KnapsackProblem.current_cap(objs, population))).T
         k = k[np.argsort(k[:, -1])]
         fitness_per_being = k[:, -2]
         population = k[:, :-2]
@@ -105,7 +196,7 @@ class BagProblem:
     def bit_flip(childrens):
         def action(children):
             for index, bit in enumerate(children):
-                if uniform(0, 1) < 0.02:
+                if uniform(0, 1) <= 0.1:
                     if bit == 1:
                         children[index] = 0
                     elif bit == 0:
@@ -114,47 +205,31 @@ class BagProblem:
 
         return np.array([action(children) for children in childrens])
 
+    def plot(self):
+        plt.plot(self.data_per_gen.T[0], self.data_per_gen.T[2], '-', label='Fitness médio')
+        plt.xlabel('Geração')
+        plt.ylabel('Fitness')
+        plt.plot(self.data_per_gen.T[0], self.data_per_gen.T[1], '-', label='Fitness máximo')
+        plt.legend(loc="upper left")
+        plt.title('Evolução do fitness médio e máximpo')
+        plt.subplot(111).legend(loc='center left', bbox_to_anchor=(1, 0.5))
+        plt.show()
+
 
 def main():
-    num_population = 1000
-    max_iters = 10000
-    population = np.array([BagProblem.init_items() for _ in range(num_population)])
-    max_gen_to_converge = 10
-    last_max_fit = 0
-    hit = 0
+    bag = KnapsackProblem(
+        obj=objs,
+        capacity=MAX_CAPACITY,
+        num_population=100,
+        max_gen_to_converge=100,
+        penalty=1
+    )
+    bag.solve(
+        True,
+        0.1
+    )
 
-    for i in range(max_iters):
-        fitness_per_being = np.array([BagProblem.fitness_function(objs, p) for p in population])
-        index = np.argmax(fitness_per_being)
-        print(f"Generation {i}")
-        print(f"Better Fitness {fitness_per_being[index]}")
-        print(f"Better Being: {population[index]}")
-        print(f"Current Capacity: {BagProblem.current_cap(objs, population[index])}")
-        print(f"Current Value: {BagProblem.value_in_bag(objs, population[index])}\n")
-
-        if hit >= max_gen_to_converge:
-            break
-        if (last_max_fit == fitness_per_being[index] or last_max_fit < fitness_per_being[index]) and BagProblem.current_cap(objs, population[index]) <= MAX_CAPACITY:
-            hit += 1
-            print(f'Hit: {hit}')
-        else:
-            hit = 0
-        last_max_fit = fitness_per_being[index]
-        proportion = 0.1
-        # Drop worst values
-        fitness_per_being, population = BagProblem.sort_population_by_fit(population, fitness_per_being)
-        population = population[:int(len(population) * proportion)]
-        fitness_per_being = fitness_per_being[:int(len(fitness_per_being) * proportion)]
-        # Drops the heavies
-        # fitness_per_being, population = BagProblem.sort_population_by_capacity(population, fitness_per_being)
-        # population = population[:int(len(population) * proportion)]
-        # fitness_per_being = fitness_per_being[:int(len(fitness_per_being) * proportion)]
-
-        selected_parents = BagProblem.fitness_roulette_selector(num_population, population, fitness_per_being)
-
-        childrens = BagProblem.crossover(selected_parents)
-        childrens = BagProblem.bit_flip(childrens)
-        population = childrens
+    bag.plot()
 
 
 if __name__ == '__main__':

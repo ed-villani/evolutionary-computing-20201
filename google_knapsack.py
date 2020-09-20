@@ -14,7 +14,7 @@ def main():
     weights = [[
         10, 18, 12, 14, 13, 11, 8, 6
     ]]
-    capacities = [30]
+    capacities = [35]
 
     solver.Init(values, weights, capacities)
     computed_value = solver.Solve()
