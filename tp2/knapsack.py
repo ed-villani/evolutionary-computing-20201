@@ -1,5 +1,5 @@
 import warnings
-from random import randint, sample, uniform
+from random import randint, uniform
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -53,7 +53,7 @@ class KnapsackProblem:
 
         for i in range(max_iters):
             fitness_per_being = np.array(
-                [KnapsackProblem.fitness_function(self.obj, p, self.penalty) for p in population])
+                [KnapsackProblem.fitness_function(self.obj, p, self.capacity, self.penalty) for p in population])
             index = np.argmax(fitness_per_being)
 
             if verbose:
@@ -65,7 +65,7 @@ class KnapsackProblem:
 
             if hit >= max_gen_to_converge:
                 break
-            hit = KnapsackProblem.count_hits(fitness_per_being, hit, index, last_max_fit, population, verbose, self.obj)
+            hit = KnapsackProblem.count_hits(fitness_per_being, hit, index, last_max_fit, population, verbose, self.obj, self.capacity)
             # Save data for analyse
             self._gens.append(
                 [
@@ -81,13 +81,13 @@ class KnapsackProblem:
 
             selected_parents = KnapsackProblem.fitness_roulette_selector(num_population, population, fitness_per_being)
             children = KnapsackProblem.gen_children(selected_parents)
-            population = self.gen_new_population(children, get_best_proportion, population, self.obj, self.penalty)
+            population = self.gen_new_population(children, get_best_proportion, population, self.obj, self.penalty, self.capacity)
 
     @staticmethod
-    def gen_new_population(children, get_best_proportion, population, obj, penalty):
+    def gen_new_population(children, get_best_proportion, population, obj, penalty, capacity):
         next_gen = KnapsackProblem.generation_selection(population, children)
         next_gen_fit = np.array(
-                [KnapsackProblem.fitness_function(obj, p, penalty) for p in next_gen]
+                [KnapsackProblem.fitness_function(obj, p, capacity, penalty) for p in next_gen]
         )
 
         fitness_per_being, population = KnapsackProblem.get_proportional_best_fitness(
@@ -107,7 +107,7 @@ class KnapsackProblem:
         return fitness_per_being, population
 
     @staticmethod
-    def count_hits(fitness_per_being, hit, index, last_max_fit, population, verbose, objs):
+    def count_hits(fitness_per_being, hit, index, last_max_fit, population, verbose, objs, capacity):
         def compare_fits():
             def equal_last():
                 return last_max_fit == fitness_per_being[index]
@@ -118,7 +118,7 @@ class KnapsackProblem:
             return equal_last() or bigger_last()
 
         def valid_capacity():
-            return KnapsackProblem.current_cap(objs, population[index]) <= MAX_CAPACITY
+            return KnapsackProblem.current_cap(objs, population[index]) <= capacity
 
         if compare_fits() and valid_capacity():
             hit += 1
@@ -147,30 +147,25 @@ class KnapsackProblem:
         return items_in_bag @ obj.T[1]
 
     @staticmethod
-    def penalty_function(obj, items_in_bag, penalty=1):
+    def penalty_function(obj, items_in_bag, capacity, penalty=1):
         def penalty_proportion(obj):
             return penalty * max((obj.T[1] / obj.T[0]))
 
         cap = KnapsackProblem.current_cap(obj, items_in_bag)
-        if cap > MAX_CAPACITY:
-            return penalty_proportion(obj) * (cap - MAX_CAPACITY)
+        if cap > capacity:
+            return penalty_proportion(obj) * (cap - capacity)
         else:
             return 0
 
     @staticmethod
-    def fitness_function(obj, items_in_bag, penalty=1):
-        fit = KnapsackProblem.value_in_bag(obj, items_in_bag) - KnapsackProblem.penalty_function(obj, items_in_bag, penalty)
+    def fitness_function(obj, items_in_bag, capacity, penalty=1):
+        fit = KnapsackProblem.value_in_bag(obj, items_in_bag) - KnapsackProblem.penalty_function(
+            obj,
+            items_in_bag,
+            capacity,
+            penalty
+        )
         return fit
-
-    @staticmethod
-    def cross(population):
-        cand = sample(range(len(TEST_OBJS)), 5)
-        cand.sort()
-
-        pais_cross = [[0] * len(TEST_OBJS), [0] * len(TEST_OBJS)]
-        for i in range(0, 2):
-            pais_cross[i] = population[cand[i]]
-        return np.array(pais_cross)
 
     @staticmethod
     def sort_population_by_fit(population, fitness_per_being):
@@ -179,14 +174,6 @@ class KnapsackProblem:
 
         fitness_per_being = k[:, -1]
         population = k[:, :-1]
-        return fitness_per_being, population
-
-    @staticmethod
-    def sort_population_by_capacity(population, fitness_per_being):
-        k = np.vstack((population.T, fitness_per_being, KnapsackProblem.current_cap(TEST_OBJS, population))).T
-        k = k[np.argsort(k[:, -1])]
-        fitness_per_being = k[:, -2]
-        population = k[:, :-2]
         return fitness_per_being, population
 
     @staticmethod
@@ -258,13 +245,13 @@ def main():
     bag = KnapsackProblem(
         obj=objs,
         capacity=max_capacity,
-        num_population=100,
-        max_gen_to_converge=100,
-        penalty=1
+        num_population=1000,
+        max_gen_to_converge=50,
+        penalty=10
     )
     bag.solve(
         True,
-        0.9
+        0.01
     )
 
     bag.plot()
