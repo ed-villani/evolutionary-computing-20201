@@ -1,10 +1,13 @@
+import warnings
 from random import randint, sample, uniform
+
 import matplotlib.pyplot as plt
-
 import numpy as np
+from matplotlib import MatplotlibDeprecationWarning
+from scipy.stats import rankdata
 
-MAX_CAPACITY = 35
-objs = np.array([
+MAX_CAPACITY = 50
+TEST_OBJS = np.array([
     [10, 5],
     [18, 8],
     [12, 7],
@@ -15,6 +18,15 @@ objs = np.array([
     [6, 3]
 ]
 )
+
+
+class ObjetsGenerator:
+    def __new__(cls, k):
+        values = [randint(1, 10) for _ in range(k)]
+        weights = [randint(5, 30) for _ in range(k)]
+        max_capacity = randint(min(weights), int(max(weights) * np.mean(weights)))
+        objs = np.array([[weights[i], values[i]] for i in range(k)])
+        return max_capacity, objs
 
 
 class KnapsackProblem:
@@ -31,7 +43,7 @@ class KnapsackProblem:
     def data_per_gen(self):
         return np.array(self._gens)
 
-    def solve(self, verbose=False, drop_worsts_proportion=0.1):
+    def solve(self, verbose=False, get_best_proportion=0.1):
         num_population = self.num_population
         max_iters = self.max_iters
         population = np.array([KnapsackProblem.init_items(self.obj) for _ in range(num_population)])
@@ -55,25 +67,40 @@ class KnapsackProblem:
                 break
             hit = KnapsackProblem.count_hits(fitness_per_being, hit, index, last_max_fit, population, verbose, self.obj)
             # Save data for analyse
-            self._gens.append([i, max(fitness_per_being), np.mean(fitness_per_being)])
+            self._gens.append(
+                [
+                    i,
+                    max(fitness_per_being),
+                    np.mean(fitness_per_being),
+                    KnapsackProblem.current_cap(self.obj, population[index]),
+                    len(population)
+                ]
+            )
 
             last_max_fit = fitness_per_being[index]
 
-            fitness_per_being, population = KnapsackProblem.drop_worst_fitness(
-                drop_worsts_proportion,
-                fitness_per_being,
-                population
-            )
-
             selected_parents = KnapsackProblem.fitness_roulette_selector(num_population, population, fitness_per_being)
-            childrens = KnapsackProblem.gen_children(selected_parents)
-
-            population = childrens
+            children = KnapsackProblem.gen_children(selected_parents)
+            population = self.gen_new_population(children, get_best_proportion, population, self.obj, self.penalty)
 
     @staticmethod
-    def drop_worst_fitness(drop_worsts_proportion, fitness_per_being, population):
-        proportion = drop_worsts_proportion
-        # Drop worst values
+    def gen_new_population(children, get_best_proportion, population, obj, penalty):
+        next_gen = KnapsackProblem.generation_selection(population, children)
+        next_gen_fit = np.array(
+                [KnapsackProblem.fitness_function(obj, p, penalty) for p in next_gen]
+        )
+
+        fitness_per_being, population = KnapsackProblem.get_proportional_best_fitness(
+            get_best_proportion,
+            next_gen_fit,
+            next_gen
+        )
+        return population
+
+    @staticmethod
+    def get_proportional_best_fitness(get_best_proportion, fitness_per_being, population):
+        proportion = get_best_proportion
+        # Get x% values
         fitness_per_being, population = KnapsackProblem.sort_population_by_fit(population, fitness_per_being)
         population = population[:int(len(population) * proportion)]
         fitness_per_being = fitness_per_being[:int(len(fitness_per_being) * proportion)]
@@ -132,16 +159,15 @@ class KnapsackProblem:
 
     @staticmethod
     def fitness_function(obj, items_in_bag, penalty=1):
-        fit = KnapsackProblem.value_in_bag(obj, items_in_bag) - KnapsackProblem.penalty_function(obj, items_in_bag,
-                                                                                                 penalty)
+        fit = KnapsackProblem.value_in_bag(obj, items_in_bag) - KnapsackProblem.penalty_function(obj, items_in_bag, penalty)
         return fit
 
     @staticmethod
     def cross(population):
-        cand = sample(range(len(objs)), 5)
+        cand = sample(range(len(TEST_OBJS)), 5)
         cand.sort()
 
-        pais_cross = [[0] * len(objs), [0] * len(objs)]
+        pais_cross = [[0] * len(TEST_OBJS), [0] * len(TEST_OBJS)]
         for i in range(0, 2):
             pais_cross[i] = population[cand[i]]
         return np.array(pais_cross)
@@ -157,7 +183,7 @@ class KnapsackProblem:
 
     @staticmethod
     def sort_population_by_capacity(population, fitness_per_being):
-        k = np.vstack((population.T, fitness_per_being, KnapsackProblem.current_cap(objs, population))).T
+        k = np.vstack((population.T, fitness_per_being, KnapsackProblem.current_cap(TEST_OBJS, population))).T
         k = k[np.argsort(k[:, -1])]
         fitness_per_being = k[:, -2]
         population = k[:, :-2]
@@ -166,14 +192,11 @@ class KnapsackProblem:
     @staticmethod
     def fitness_roulette_selector(n_been, population, fitness_per_being):
         def roulette_selector_per_been(population, fitness_per_being):
-            total_fitness = sum(fitness_per_being)
-            proportion_fit = fitness_per_being / total_fitness
+            ranking = KnapsackProblem.rank_population(fitness_per_being)
+            linear_ranking = KnapsackProblem.linear_rank(len(fitness_per_being), ranking)
             picker = uniform(0, 1)
-            current = 0
-            for been, fit in zip(population, proportion_fit):
-                current += fit
-                if current > picker:
-                    return been
+            index = np.where(np.cumsum(linear_ranking) >= picker)[0][0]
+            return population[index]
 
         selected_parents = np.array(
             [roulette_selector_per_been(population, fitness_per_being) for _ in range(int(n_been))])
@@ -206,27 +229,42 @@ class KnapsackProblem:
         return np.array([action(children) for children in childrens])
 
     def plot(self):
+        warnings.filterwarnings("ignore", category=MatplotlibDeprecationWarning)
         plt.plot(self.data_per_gen.T[0], self.data_per_gen.T[2], '-', label='Fitness médio')
         plt.xlabel('Geração')
         plt.ylabel('Fitness')
         plt.plot(self.data_per_gen.T[0], self.data_per_gen.T[1], '-', label='Fitness máximo')
         plt.legend(loc="upper left")
-        plt.title('Evolução do fitness médio e máximpo')
+        plt.title('Evolução do fitness médio e máximo')
         plt.subplot(111).legend(loc='center left', bbox_to_anchor=(1, 0.5))
         plt.show()
 
+    @staticmethod
+    def rank_population(fit_per_being):
+        return np.array(rankdata(fit_per_being, method='ordinal') - 1)
+
+    @staticmethod
+    def linear_rank(n_pop, ranking, s=1.5):
+        return ((2 - s) / n_pop) + ((2 * ranking) * (s - 1)) / (n_pop * (n_pop - 1))
+
+    @staticmethod
+    def generation_selection(parents, children):
+        next_generation = np.concatenate((parents, children), axis=0)
+        return next_generation
+
 
 def main():
+    max_capacity, objs = ObjetsGenerator(200)
     bag = KnapsackProblem(
         obj=objs,
-        capacity=MAX_CAPACITY,
+        capacity=max_capacity,
         num_population=100,
         max_gen_to_converge=100,
         penalty=1
     )
     bag.solve(
         True,
-        0.1
+        0.9
     )
 
     bag.plot()
