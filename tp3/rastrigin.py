@@ -10,4 +10,3 @@ def rastrigin(x):
     for i in range(n):
         F = F + X[i] ** 2 - 10 * np.cos(2 * np.pi * X[i])
     return F
-

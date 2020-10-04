@@ -1,19 +1,18 @@
 import warnings
 from copy import deepcopy
+
+import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import MatplotlibDeprecationWarning
 from numpy.random.mtrand import uniform, choice, randint
-import matplotlib.pyplot as plt
-
-from tp3.peaks import peaks
-from tp3.rastrigin import rastrigin
 
 
 class DifferentialEvolution:
 
-    def __init__(self, n_pop, axis_range, max_gen=10000, max_gen_to_converge=50, C=None, F=None):
+    def __init__(self, n_pop, axis_range, max_gen=10000, max_gen_to_converge=50, method='random', C=None, F=None):
         self._n_pop = n_pop
         self._axis_range = axis_range
+        self._method = method
         self._max_gen = max_gen
         self._max_gen_to_converge = max_gen_to_converge
         self._c = C
@@ -35,7 +34,7 @@ class DifferentialEvolution:
 
         data_arg_min = []
         for i in range(MAX_GEN):
-            children = DifferentialEvolution.gen_children(pop, C=C, F=F)
+            children = DifferentialEvolution.gen_children(pop, func=func, C=C, F=F, method=self._method)
             pop = DifferentialEvolution.select_new_generation(pop, children, func)
             fit = DifferentialEvolution.pop_fitness(pop, func)
             if log:
@@ -50,7 +49,6 @@ class DifferentialEvolution:
             if hit > max_gen_to_converge:
                 self._data_per_gen = np.array(data_arg_min)
                 return np.array(data_arg_min)
-
 
     def plot(self):
         warnings.filterwarnings("ignore", category=MatplotlibDeprecationWarning)
@@ -73,9 +71,22 @@ class DifferentialEvolution:
         return np.array(list(map(func, pop)))
 
     @staticmethod
-    def pick_rs(pop):
-        index = choice(len(pop), 3, replace=False)
-        return deepcopy(pop[index])
+    def pick_rs(pop, func, method='random'):
+        if method == 'random':
+            index = choice(len(pop), 3, replace=False)
+            return deepcopy(pop[index])
+        elif method == 'mean':
+            rs1 = np.mean(pop, 0)
+            index = choice(len(pop), 2, replace=False)
+            return np.insert(pop[index], 0, rs1, 0)
+        elif method == 'min':
+            aux_pop = deepcopy(pop)
+            fit = DifferentialEvolution.pop_fitness(aux_pop, func)
+            index_min = np.argmin(fit)
+            rs1 = aux_pop[index_min]
+            aux_pop = np.delete(aux_pop, index_min, 0)
+            index = choice(len(aux_pop), 2, replace=False)
+            return np.insert(aux_pop[index], 0, rs1, 0)
 
     @staticmethod
     def select_new_generation(pop, children, func):
@@ -89,7 +100,7 @@ class DifferentialEvolution:
         return np.array(new_gen)
 
     @staticmethod
-    def gen_children(pop, C=None, F=None):
+    def gen_children(pop, method, func, C=None, F=None):
         def gen_selector():
             if C is None:
                 return uniform(0.6, 0.9)
@@ -109,7 +120,7 @@ class DifferentialEvolution:
                 return being[index]
 
         def gen_child(being):
-            rs = DifferentialEvolution.pick_rs(pop)
+            rs = DifferentialEvolution.pick_rs(pop, func, method)
             delta = randint(0, rs.shape[1])
             return np.array(
                 [
@@ -119,19 +130,21 @@ class DifferentialEvolution:
 
         return np.array([gen_child(being) for being in pop])
 
-
-def main():
-    n_pop = 100
-    axis_ranges = (-2, 2)
-    func = rastrigin
-
-    de = DifferentialEvolution(
-        n_pop,
-        axis_ranges,
-        max_gen_to_converge=20
-    )
-    de.arg_min(func, True)
-    de.plot()
-
-if __name__ == '__main__':
-    main()
+#
+# def main():
+#     n_pop = 100
+#     axis_ranges = (-2, 2)
+#     func = rastrigin
+#
+#     de = DifferentialEvolution(
+#         n_pop,
+#         axis_ranges,
+#         max_gen_to_converge=20,
+#         method='min'
+#     )
+#     de.arg_min(func, True)
+#     de.plot()
+#
+#
+# if __name__ == '__main__':
+#     main()

@@ -1,7 +1,9 @@
 import numpy as np
 
 
-def peaks(x, y):
+def peaks(x):
+    y = x[1]
+    x = x[0]
     exp_1 = 3 * (1 - x) ** 2 * np.exp(- (x ** 2) - (y + 1) ** 2)
     exp_2 = 10 * (x / 5 - x ** 3 - y ** 5) * np.exp(-(x ** 2) - (y ** 2))
     exp_3 = (1 / 3) * np.exp(-(x + 1) ** 2 - (y ** 2))
