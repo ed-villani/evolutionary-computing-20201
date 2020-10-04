@@ -1,6 +1,9 @@
+import warnings
 from copy import deepcopy
 import numpy as np
+from matplotlib import MatplotlibDeprecationWarning
 from numpy.random.mtrand import uniform, choice, randint
+import matplotlib.pyplot as plt
 
 from tp3.peaks import peaks
 from tp3.rastrigin import rastrigin
@@ -15,6 +18,7 @@ class DifferentialEvolution:
         self._max_gen_to_converge = max_gen_to_converge
         self._c = C
         self._f = F
+        self._data_per_gen = None
 
     def arg_min(self, func, log=False):
         func = func
@@ -44,9 +48,21 @@ class DifferentialEvolution:
             if min(fit) == current_min:
                 hit = hit + 1
             if hit > max_gen_to_converge:
-                return data_arg_min
+                self._data_per_gen = np.array(data_arg_min)
+                return np.array(data_arg_min)
 
 
+    def plot(self):
+        warnings.filterwarnings("ignore", category=MatplotlibDeprecationWarning)
+        plt.plot(self._data_per_gen.T[0], self._data_per_gen.T[2], '-', label='Fitness médio')
+        plt.xlabel('Geração')
+        plt.ylabel('Fitness')
+        plt.plot(self._data_per_gen.T[0], self._data_per_gen.T[1], '-', label='Fitness minimo')
+        plt.plot(self._data_per_gen.T[0], self._data_per_gen.T[3], '-', label='Fitness máximo')
+        plt.legend(loc="upper left")
+        plt.title('Evolução do fitness máximo, médio e minimo')
+        plt.subplot(111).legend(loc='center left', bbox_to_anchor=(1, 0.5))
+        plt.show()
 
     @staticmethod
     def init_population(axis_range, n_pop, dimensions):
@@ -115,7 +131,7 @@ def main():
         max_gen_to_converge=20
     )
     de.arg_min(func, True)
-
+    de.plot()
 
 if __name__ == '__main__':
     main()
